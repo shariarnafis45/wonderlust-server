@@ -2,6 +2,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 dotenv.config();
 const uri = process.env.MONGO_URI;
 const app = express();
@@ -19,16 +20,45 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+const verifyToken = async (req, res, next) => {
+  const headers = req.headers.authorization;
+  if (!headers) {
+    return res.status(401).json({
+      message: "unauthorized",
+    });
+  }
+  const token = headers.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({
+      message: "unauthorized",
+    });
+  }
+
+  try {
+    const JWKS = createRemoteJWKSet(
+      new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
+    );
+    const { payload } = await jwtVerify(token, JWKS);
+    console.log(payload);
+    next();
+  } catch (error) {
+    return res.status(403).json({
+      message: "Forbidden",
+    });
+  }
+};
+
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     const db = client.db("wanderlustDB");
     const destinationsCollection = db.collection("destinations");
     const bookingsCollection = db.collection("bookings");
 
-    app.post("/destinations", async (req, res) => {
+    app.post("/add-destination",verifyToken, async (req, res) => {
       const destination = req.body;
       const result = await destinationsCollection.insertOne(destination);
       res.json(result);
@@ -39,7 +69,8 @@ async function run() {
       res.json(destinations);
     });
 
-    app.get("/destinations/:id", async (req, res) => {
+    // middleware
+    app.get("/destinations/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const destinationData = await destinationsCollection.findOne({
         _id: new ObjectId(id),
